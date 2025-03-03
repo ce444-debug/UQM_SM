@@ -1,7 +1,7 @@
 import math
 import pygame
-from config import FIELD_W, FIELD_H
-from utils import wrap_delta, wrap_position
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_delta, wrap_position
 
 class Missile:
     def __init__(self, x, y, vx, vy, target, launch_time):

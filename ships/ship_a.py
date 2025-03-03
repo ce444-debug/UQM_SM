@@ -1,11 +1,12 @@
-from project.config import FIELD_W, FIELD_H
-from project.utils import wrap_position, wrap_delta
-from project.entities.missile import Missile
+# project/ships/ship_a.py
 import math
+from project.ships.base_ship import BaseShip
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_delta, wrap_position
 
-class ShipA:
+class ShipA(BaseShip):
     def __init__(self, x, y, color):
-        # Параметры корабля Earthling Cruiser
+        super().__init__(x, y, color)
         self.name = "Earthling Cruiser"
         self.max_crew = 18
         self.crew = 18
@@ -13,63 +14,20 @@ class ShipA:
         self.energy = 18
         self.energy_regeneration = 1
         self.energy_wait = 8 / 60.0
-        self.energy_timer = self.energy_wait  # Инициализация таймера энергии
+        self.energy_timer = self.energy_wait
 
-        # Параметры ракетного оружия (missile launcher)
         self.weapon_energy_cost = 9
         self.weapon_wait = 10 / 60.0
         self.weapon_timer = 0
 
-        # Параметры лазерной защиты (point-defense laser)
         self.special_energy_cost = 4
         self.special_wait = 9 / 60.0
         self.special_timer = 0
 
-        # Параметры движения
         self.max_thrust = 24.0
         self.thrust_increment = 3.0
         self.thrust_wait = 4 / 60.0
         self.turn_speed = 180.0
-
-        self.x = float(x)
-        self.y = float(y)
-        self.vx = 0.0
-        self.vy = 0.0
-        self.color = color
-        self.radius = 15
-        self.angle = 0.0  # 0° – направление вверх
-        self.spawn_timer = 1.0
-
-        # Список активных лазерных лучей (для визуализации)
-        self.active_lasers = []
-
-    def update(self, dt):
-        self.x += self.vx * dt
-        self.y += self.vy * dt
-        self.x, self.y = wrap_position(self.x, self.y)
-        if self.spawn_timer > 0:
-            self.spawn_timer = max(0, self.spawn_timer - dt)
-        self.energy_timer -= dt
-        if self.energy_timer <= 0:
-            if self.energy < self.max_energy:
-                self.energy = min(self.max_energy, self.energy + self.energy_regeneration)
-            self.energy_timer = self.energy_wait
-        if self.weapon_timer > 0:
-            self.weapon_timer -= dt
-        if self.special_timer > 0:
-            self.special_timer -= dt
-        new_lasers = []
-        for (tx, ty, t) in self.active_lasers:
-            t -= dt
-            if t > 0:
-                new_lasers.append((tx, ty, t))
-        self.active_lasers = new_lasers
-
-    def take_damage(self, amount):
-        self.crew -= amount
-        if self.crew <= 0:
-            print(f"{self.name} destroyed!")
-            self.crew = self.max_crew
 
     def fire_missile(self, enemy, game_time):
         if self.weapon_timer <= 0 and self.energy >= self.weapon_energy_cost:
@@ -83,10 +41,12 @@ class ShipA:
             front_y = self.y - self.radius * math.cos(rad)
             missile_vx = self.vx + 50 * math.sin(rad)
             missile_vy = self.vy - 50 * math.cos(rad)
+            from project.entities.missile import Missile
             return Missile(front_x, front_y, missile_vx, missile_vy, enemy, game_time)
         return None
 
     def fire_laser_defense(self, targets, game_time):
+        # Лазерная защита
         laser_range = self.radius * 2.2 * 2  # приблизительно чуть более 2× длины корабля
         valid_targets = []
         for target in targets:

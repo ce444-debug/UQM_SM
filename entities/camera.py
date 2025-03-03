@@ -1,5 +1,5 @@
-from config import FIELD_W, FIELD_H
-from utils import wrap_midpoint
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_midpoint
 
 class Camera:
     def __init__(self, x, y):
