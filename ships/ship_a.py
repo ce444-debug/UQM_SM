@@ -1,31 +1,32 @@
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_position, wrap_delta
+from project.entities.missile import Missile
 import math
-from config import FIELD_W, FIELD_H
-from utils import wrap_position, wrap_delta
-from entities.missile import Missile
 
 class ShipA:
     def __init__(self, x, y, color):
-        self.name = "Earthling Cruiser A"
+        # Параметры корабля Earthling Cruiser
+        self.name = "Earthling Cruiser"
         self.max_crew = 18
         self.crew = 18
         self.max_energy = 18
         self.energy = 18
         self.energy_regeneration = 1
         self.energy_wait = 8 / 60.0
-        self.energy_timer = self.energy_wait
+        self.energy_timer = self.energy_wait  # Инициализация таймера энергии
 
-        # Параметры ракетного оружия
+        # Параметры ракетного оружия (missile launcher)
         self.weapon_energy_cost = 9
         self.weapon_wait = 10 / 60.0
         self.weapon_timer = 0
 
-        # Параметры лазерной защиты
+        # Параметры лазерной защиты (point-defense laser)
         self.special_energy_cost = 4
         self.special_wait = 9 / 60.0
         self.special_timer = 0
 
         # Параметры движения
-        self.max_thrust = 36.0
+        self.max_thrust = 24.0
         self.thrust_increment = 3.0
         self.thrust_wait = 4 / 60.0
         self.turn_speed = 180.0
@@ -38,6 +39,8 @@ class ShipA:
         self.radius = 15
         self.angle = 0.0  # 0° – направление вверх
         self.spawn_timer = 1.0
+
+        # Список активных лазерных лучей (для визуализации)
         self.active_lasers = []
 
     def update(self, dt):
@@ -84,9 +87,7 @@ class ShipA:
         return None
 
     def fire_laser_defense(self, targets, game_time):
-        if self.special_timer > 0 or self.energy < self.special_energy_cost:
-            return
-        laser_range = self.radius * 4.4
+        laser_range = self.radius * 2.2 * 2  # приблизительно чуть более 2× длины корабля
         valid_targets = []
         for target in targets:
             dx = wrap_delta(self.x, target.x, FIELD_W)
@@ -94,7 +95,7 @@ class ShipA:
             effective_distance = math.hypot(dx, dy) - target.radius
             if effective_distance <= laser_range:
                 valid_targets.append(target)
-        if not valid_targets:
+        if not valid_targets or self.special_timer > 0 or self.energy < self.special_energy_cost:
             return
         self.energy -= self.special_energy_cost
         if self.energy == self.max_energy:

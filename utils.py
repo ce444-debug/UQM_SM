@@ -1,6 +1,6 @@
 import math
 import random
-from config import FIELD_W, FIELD_H
+from project.config import FIELD_W, FIELD_H
 
 def spawn_ship():
     margin = 15  # чтобы корабль полностью был внутри поля
