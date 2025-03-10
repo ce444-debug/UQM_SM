@@ -1,7 +1,8 @@
+# project/entities/missile.py
 import math
-import pygame
 from project.config import FIELD_W, FIELD_H
-from project.utils import wrap_delta, wrap_position
+from project.utils import wrap_position, wrap_delta
+import pygame
 
 class Missile:
     def __init__(self, x, y, vx, vy, target, launch_time):
@@ -16,8 +17,15 @@ class Missile:
         self.radius = 5
         self.launch_time = launch_time
         self.active = True
+        self.lifetime = 3.0  # Время жизни снаряда в секундах (для основного оружия)
 
     def update(self, dt):
+        # Уменьшаем время жизни
+        self.lifetime -= dt
+        if self.lifetime <= 0:
+            self.active = False
+            return
+
         if self.target is not None:
             dx = wrap_delta(self.x, self.target.x, FIELD_W)
             dy = wrap_delta(self.y, self.target.y, FIELD_H)
@@ -32,6 +40,6 @@ class Missile:
         self.x, self.y = wrap_position(self.x, self.y)
 
     def draw(self, screen, cam, zoom):
-        from utils import world_to_screen
+        from project.utils import world_to_screen
         sx, sy = world_to_screen(self.x, self.y, cam.x, cam.y, zoom)
         pygame.draw.circle(screen, (255, 255, 0), (sx, sy), int(self.radius * zoom))

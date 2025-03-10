@@ -8,7 +8,7 @@ def apply_gravity(ship, planet, dt):
     distance = math.hypot(dx, dy)
     if distance < GRAVITY_RANGE and distance != 0:
         factor = (1 - distance / GRAVITY_RANGE)
-        accel = GRAVITY_STRENGTH * factor * 1.5
+        accel = GRAVITY_STRENGTH * factor * 3
         nx = dx / distance
         ny = dy / distance
         ship.vx += nx * accel * dt

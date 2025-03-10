@@ -4,18 +4,24 @@ from project.config import FIELD_W, FIELD_H
 from project.utils import wrap_position, wrap_delta
 
 class BaseShip:
+    next_id = 1  # Статическая переменная для уникального идентификатора
+
     def __init__(self, x, y, color):
+        # Присваиваем уникальный ID каждому кораблю
+        self.id = BaseShip.next_id
+        BaseShip.next_id += 1
+
         self.x = float(x)
         self.y = float(y)
         self.vx = 0.0
         self.vy = 0.0
         self.color = color
         self.radius = 15
-        self.angle = 0.0  # 0° – направление вверх
+        self.angle = 0.0  # 0° – направлен вверх
         self.spawn_timer = 1.0
         self.active_lasers = []
 
-        # Общие параметры корабля (будут переопределены в наследниках)
+        # Общие параметры (будут переопределяться в наследниках)
         self.name = "BaseShip"
         self.max_crew = 10
         self.crew = 10
@@ -63,9 +69,15 @@ class BaseShip:
     def take_damage(self, amount):
         self.crew -= amount
         if self.crew <= 0:
-            print(f"{self.name} destroyed!")
+            print(f"{self.name} (ID {self.id}) destroyed!")
             self.crew = self.max_crew
 
     @property
     def active(self):
         return self.crew > 0
+
+    def fire_missile(self, enemy, game_time):
+        raise NotImplementedError("fire_missile() must be implemented by subclass.")
+
+    def fire_laser_defense(self, targets, game_time):
+        raise NotImplementedError("fire_laser_defense() must be implemented by subclass.")
