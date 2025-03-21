@@ -1,4 +1,3 @@
-# project/ships/ship_a.py
 import math
 from project.ships.base_ship import BaseShip
 from project.config import FIELD_W, FIELD_H
@@ -24,12 +23,15 @@ class ShipA(BaseShip):
         self.special_wait = 9 / 60.0
         self.special_timer = 0
 
-        self.max_thrust = 30.0
+        self.max_thrust = 70.0
         self.thrust_increment = 4.0
-        self.thrust_wait = 4 / 60.0
+        self.thrust_wait = 11 / 60.0
         self.turn_speed = 180.0
 
-    def fire_missile(self, enemy, game_time):
+        self.cost = self.max_crew  # Устанавливаем стоимость
+
+    def fire_primary(self, enemy, game_time):
+        # Запуск ракеты (старый fire_missile)
         if self.weapon_timer <= 0 and self.energy >= self.weapon_energy_cost:
             self.energy -= self.weapon_energy_cost
             self.weapon_timer = self.weapon_wait
@@ -39,39 +41,31 @@ class ShipA(BaseShip):
             missile_vx = self.vx + 50 * math.sin(rad)
             missile_vy = self.vy - 50 * math.cos(rad)
             from project.entities.missile import Missile
-            return Missile(front_x, front_y, missile_vx, missile_vy, enemy, game_time)
+            missile = Missile(front_x, front_y, missile_vx, missile_vy, enemy, game_time)
+            missile.owner = self
+            return missile
         return None
 
-    def fire_laser_defense(self, targets, game_time):
-        """
-        Лазерная защита Earthling Cruiser.
-        Теперь вычисляется effective_distance как расстояние от нашего центра
-        до центра цели минус радиус цели.
-        Если расстояние от нашего центра до края цели меньше laser_range,
-        лазер поражает цель, при этом луч направлен в точку на окружности цели,
-        где происходит удар.
-        """
-        laser_range = self.radius * 2.2 * 2  # диапазон действия лазера
+    def fire_secondary(self, targets, game_time):
+        # Лазерная защита (старый fire_laser_defense)
+        laser_range = self.radius * 2.2 * 2
         valid_targets = []
         for target in targets:
             dx = wrap_delta(self.x, target.x, FIELD_W)
             dy = wrap_delta(self.y, target.y, FIELD_H)
             distance = math.hypot(dx, dy)
-            # effective_distance: расстояние от нашего центра до центра цели минус радиус цели
             effective_distance = distance - getattr(target, 'radius', 0)
             if effective_distance <= laser_range:
                 valid_targets.append(target)
         if not valid_targets or self.special_timer > 0 or self.energy < self.special_energy_cost:
-            return
+            return None
         self.energy -= self.special_energy_cost
         self.special_timer = self.special_wait
-        # Для каждого валидного целевого корабля вычисляем точку удара на его окружности
         for target in valid_targets:
             dx = target.x - self.x
             dy = target.y - self.y
             d = math.hypot(dx, dy)
             if d != 0:
-                # Точка на окружности цели вдоль направления от нашего корабля
                 impact_x = target.x - (dx / d) * target.radius
                 impact_y = target.y - (dy / d) * target.radius
             else:

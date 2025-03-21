@@ -1,23 +1,18 @@
-# project/entities/missile.py
 import math
 from project.config import FIELD_W, FIELD_H
 from project.utils import wrap_position, wrap_delta
 import pygame
+from project.entities.projectile import Projectile
 
-class Missile:
+class Missile(Projectile):
     def __init__(self, x, y, vx, vy, target, launch_time):
-        self.x = float(x)
-        self.y = float(y)
-        self.vx = float(vx)
-        self.vy = float(vy)
+        # Наследуем общие поля: damage=4, radius=5
+        super().__init__(x, y, vx, vy, damage=4, radius=5)
         self.target = target
-        self.damage = 4
         self.speed = 300.0
         self.homing_strength = 2.0
-        self.radius = 5
         self.launch_time = launch_time
-        self.active = True
-        self.lifetime = 3.0  # Время жизни снаряда в секундах (для основного оружия)
+        self.lifetime = 3.0  # Время жизни снаряда (секунд)
 
     def update(self, dt):
         # Уменьшаем время жизни
@@ -40,6 +35,5 @@ class Missile:
         self.x, self.y = wrap_position(self.x, self.y)
 
     def draw(self, screen, cam, zoom):
-        from project.utils import world_to_screen
-        sx, sy = world_to_screen(self.x, self.y, cam.x, cam.y, zoom)
-        pygame.draw.circle(screen, (255, 255, 0), (sx, sy), int(self.radius * zoom))
+        # Рисуем ракету желтым цветом
+        super().draw(screen, cam, zoom, color=(255, 255, 0))

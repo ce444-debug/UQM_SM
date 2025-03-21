@@ -1,4 +1,3 @@
-# project/ships/ship_terminator.py
 import math
 from project.ships.base_ship import BaseShip
 from project.config import FIELD_W, FIELD_H
@@ -31,7 +30,9 @@ class ShipTerminator(BaseShip):
 
         self.shield_timer = 0
 
-    def fire_missile(self, enemy, game_time):
+        self.cost = self.max_crew  # Стоимость корабля
+
+    def fire_primary(self, enemy, game_time):
         if self.weapon_timer <= 0 and self.energy >= self.weapon_energy_cost:
             self.energy -= self.weapon_energy_cost
             self.weapon_timer = self.weapon_wait
@@ -52,19 +53,18 @@ class ShipTerminator(BaseShip):
             from project.entities.missile import Missile
             missile_left = Missile(left_x, left_y, missile_vx, missile_vy, None, game_time)
             missile_left.damage = 1
-            missile_left.owner = self  # Устанавливаем владельца для столкновений
+            missile_left.owner = self
             missile_right = Missile(right_tip_x, right_tip_y, missile_vx, missile_vy, None, game_time)
             missile_right.damage = 1
-            missile_right.owner = self  # Устанавливаем владельца
+            missile_right.owner = self
             return [missile_left, missile_right]
         return []
 
-    def fire_laser_defense(self, targets, game_time):
-        # Shield activation: параметр targets не используется, но присутствует для унификации интерфейса.
+    def fire_secondary(self, targets, game_time):
         if self.special_timer <= 0 and self.energy >= self.special_energy_cost:
             self.energy -= self.special_energy_cost
             self.special_timer = self.special_wait
-            self.shield_timer = 0.5  # Щит активен 0.5 секунд
+            self.shield_timer = 0.5
         return []
 
     def update(self, dt):

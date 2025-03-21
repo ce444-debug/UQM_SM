@@ -1,6 +1,6 @@
-# project/collisions.py
 import math
 from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_delta  # Теперь используем wrap_delta для вычисления разницы
 
 def handle_planet_collision(ship, planet, game_time):
     """
@@ -10,26 +10,27 @@ def handle_planet_collision(ship, planet, game_time):
     При этом, если прошло более 0.5 секунд с предыдущего столкновения с планетой,
     кораблю наносится 1 единица урона экипажа.
     """
-    dx = ship.x - planet.x
-    dy = ship.y - planet.y
+    dx = wrap_delta(planet.x, ship.x, FIELD_W)
+    dy = wrap_delta(planet.y, ship.y, FIELD_H)
     dist = math.hypot(dx, dy)
     min_dist = ship.radius + planet.radius
     if dist < min_dist:
-        # Вычисляем нормаль столкновения (направление от планеты к кораблю)
         if dist == 0:
             nx, ny = 1.0, 0.0
         else:
             nx = dx / dist
             ny = dy / dist
         overlap = min_dist - dist
-        # Сдвигаем корабль, чтобы он вышел за пределы планеты
         ship.x += nx * overlap
         ship.y += ny * overlap
-        # Отражаем скорость (отскок)
         dot = ship.vx * nx + ship.vy * ny
         ship.vx -= 2.0 * dot * nx
         ship.vy -= 2.0 * dot * ny
-        # Обеспечиваем, чтобы урон наносился не чаще, чем раз в 0.5 секунды
+
+        impulse = ship.thrust_increment * 8
+        ship.vx += impulse * nx
+        ship.vy += impulse * ny
+
         if not hasattr(ship, "last_planet_collision"):
             ship.last_planet_collision = 0
         if game_time - ship.last_planet_collision > 0.5:
@@ -37,8 +38,13 @@ def handle_planet_collision(ship, planet, game_time):
             ship.last_planet_collision = game_time
 
 def handle_ship_asteroid_collision(ship, asteroid):
-    dx = ship.x - asteroid.x
-    dy = ship.y - asteroid.y
+    # Оптимизация: Проверяем столкновение, только если объекты близко
+    collision_margin = 100
+    if abs(ship.x - asteroid.x) > collision_margin or abs(ship.y - asteroid.y) > collision_margin:
+        return
+
+    dx = wrap_delta(asteroid.x, ship.x, FIELD_W)
+    dy = wrap_delta(asteroid.y, ship.y, FIELD_H)
     dist = math.hypot(dx, dy)
     min_dist = ship.radius + asteroid.radius
     if dist < min_dist:
@@ -61,8 +67,8 @@ def handle_ship_asteroid_collision(ship, asteroid):
         asteroid.vy += p * ny
 
 def handle_ship_ship_collision(ship1, ship2):
-    dx = ship1.x - ship2.x
-    dy = ship1.y - ship2.y
+    dx = wrap_delta(ship2.x, ship1.x, FIELD_W)
+    dy = wrap_delta(ship2.y, ship1.y, FIELD_H)
     dist = math.hypot(dx, dy)
     min_dist = ship1.radius + ship2.radius
     if dist < min_dist:
@@ -85,8 +91,8 @@ def handle_ship_ship_collision(ship1, ship2):
         ship2.vy += p * ny
 
 def handle_asteroid_collision(asteroid1, asteroid2):
-    dx = asteroid1.x - asteroid2.x
-    dy = asteroid1.y - asteroid2.y
+    dx = wrap_delta(asteroid2.x, asteroid1.x, FIELD_W)
+    dy = wrap_delta(asteroid2.y, asteroid1.y, FIELD_H)
     dist = math.hypot(dx, dy)
     min_dist = asteroid1.radius + asteroid2.radius
     if dist < min_dist:
