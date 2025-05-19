@@ -1,7 +1,5 @@
 import math
 import random
-from project.utils import wrap_delta
-from project.config import FIELD_W, FIELD_H
 
 
 class AIController:
@@ -25,7 +23,7 @@ class AIController:
 
     def update(self, dt, enemy, obstacles, projectiles):
         # Отладка: выводим информацию об update
-        #print(f"[AI UPDATE] Ship: {self.ship.name} | dt: {dt:.3f} | reaction_time: {self.reaction_time}")
+        # print(f"[AI UPDATE] Ship: {self.ship.name} | dt: {dt:.3f} | reaction_time: {self.reaction_time}")
         self._decision_timer += dt
         if self._decision_timer < self.reaction_time:
             return  # пропускаем обновление, если не прошёл интервал реакции
@@ -34,7 +32,7 @@ class AIController:
         # Проверяем препятствия – если обнаружено, получаем угол уклонения
         avoid_direction = self.avoid_obstacles(obstacles)
         #if avoid_direction is not None:
-            #print(f"[AI] {self.ship.name} обнаружил препятствие, корректировка угла на {avoid_direction:.1f}")
+            # print(f"[AI] {self.ship.name} обнаружил препятствие, корректировка угла на {avoid_direction:.1f}")
 
         # Получаем базовый целевой угол и решение о тяге – определяется в подклассах
         target_angle, thrust = self.determine_movement(enemy)

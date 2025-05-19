@@ -1,8 +1,8 @@
 import math
 import random
 import pygame
-from project.config import FIELD_W, FIELD_H, ASTEROID_ROTATION_AXIS
-from project.utils import wrap_delta, wrap_position, world_to_screen
+from project.config import ASTEROID_ROTATION_AXIS
+from project.model.utils import wrap_position, world_to_screen
 
 class Asteroid:
     def __init__(self, x, y, radius, vx, vy, color):

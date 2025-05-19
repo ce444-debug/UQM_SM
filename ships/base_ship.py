@@ -1,6 +1,7 @@
 import math
-from project.config import FIELD_W, FIELD_H
-from project.utils import wrap_position, wrap_delta
+import pygame  # Добавлено для отрисовки
+from project.model.utils import wrap_position
+
 
 class BaseShip:
     next_id = 1  # Статическая переменная для уникального идентификатора
@@ -46,8 +47,11 @@ class BaseShip:
         # Флаг гравитационного манёвра (разрешает превышение max_thrust)
         self.in_gravity_field = False
 
-        # Новый флаг жизни – корабль считается живым, если alive == True
-        self.alive = True
+        # Новый флаг ускорения, который устанавливается при вызове accelerate()
+        self.accelerating = False
+
+        # Новый атрибут, указывающий на смерть корабля
+        self.dead = False
 
     def update(self, dt):
         # Обновляем положение
@@ -80,30 +84,50 @@ class BaseShip:
         self.active_lasers = new_lasers
 
         # Плавное выравнивание вектора скорости к направлению корабля
-        current_speed = math.hypot(self.vx, self.vy)
-        if current_speed > 0:
-            current_velocity_angle = math.degrees(math.atan2(self.vx, -self.vy))
-            angle_diff = (self.angle - current_velocity_angle + 180) % 360 - 180
-            allowed_rotation = dt * self.turn_speed * 10.0 / max(current_speed, 1)
-            rotation = math.copysign(min(abs(angle_diff), allowed_rotation), angle_diff)
-            new_velocity_angle = current_velocity_angle + rotation
-            new_rad = math.radians(new_velocity_angle)
-            self.vx = current_speed * math.sin(new_rad)
-            self.vy = -current_speed * math.cos(new_rad)
+        # Выполняется только если корабль ускоряется
+        if self.accelerating:
+            current_speed = math.hypot(self.vx, self.vy)
+            if current_speed > 0:
+                current_velocity_angle = math.degrees(math.atan2(self.vx, -self.vy))
+                angle_diff = ((self.angle - current_velocity_angle + 180) % 360) - 180
+                allowed_rotation = dt * self.turn_speed * 10.0 / max(current_speed, 1)
+                rotation = math.copysign(min(abs(angle_diff), allowed_rotation), angle_diff)
+                new_velocity_angle = current_velocity_angle + rotation
+                new_rad = math.radians(new_velocity_angle)
+                self.vx = current_speed * math.sin(new_rad)
+                self.vy = -current_speed * math.cos(new_rad)
+        # Сбрасываем флаг ускорения
+        self.accelerating = False
 
     def take_damage(self, amount):
-        if not self.alive:
-            return
         self.crew -= amount
         if self.crew <= 0:
-            self.alive = False
             print(f"{self.name} (ID {self.id}) destroyed!")
+            self.dead = True
+            # Не сбрасываем crew к max_crew, чтобы сохранить состояние смерти
 
     @property
     def active(self):
-        return self.alive
+        return not self.dead
 
-    # Унифицированные методы вооружения – должны быть переопределены в подклассах
+    # Новый метод: отрисовка корабля с носом.
+    def draw(self, screen, cam, zoom):
+        from project.model.utils import world_to_screen
+        # Получаем экранные координаты
+        sx, sy = world_to_screen(self.x, self.y, cam.x, cam.y, zoom)
+        # Вычисляем радиус с учётом зума
+        radius = int(self.radius * zoom)
+        # Отрисовываем тело корабля (круг)
+        pygame.draw.circle(screen, self.color, (sx, sy), radius)
+        # Вычисляем позицию носа (направление, заданное углом корабля)
+        rad = math.radians(self.angle)
+        nose_length = radius  # можно увеличить, если хочется более длинный нос
+        nose_x = sx + int(nose_length * math.sin(rad))
+        nose_y = sy - int(nose_length * math.cos(rad))
+        # Отрисовываем нос (линия)
+        pygame.draw.line(screen, (255, 255, 255), (sx, sy), (nose_x, nose_y), 2)
+
+    # Унифицированные методы вооружения – должны быть переопределены в наследниках
     def fire_primary(self, enemy, game_time):
         raise NotImplementedError("fire_primary() must be implemented by subclass.")
 
@@ -113,10 +137,13 @@ class BaseShip:
     def accelerate(self):
         """Применяет ускорение в направлении, на которое направлен корабль.
         Если текущая скорость превышает max_thrust и корабль не находится в гравитационном поле,
-        ускорение не применяется."""
+        ускорение не применяется.
+        """
         current_speed = math.hypot(self.vx, self.vy)
         if current_speed > self.max_thrust and not self.in_gravity_field:
-            return  # Не ускоряем, если скорость уже превышена.
+            return  # Не ускоряем, если скорость уже превышена
+        # Устанавливаем флаг ускорения
+        self.accelerating = True
         rad = math.radians(self.angle)
         self.vx += self.thrust_increment * math.sin(rad)
-        self.vy += self.thrust_increment * math.sin(rad)
+        self.vy += self.thrust_increment * -math.cos(rad)

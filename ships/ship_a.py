@@ -1,7 +1,8 @@
 import math
+import pygame
 from project.ships.base_ship import BaseShip
 from project.config import FIELD_W, FIELD_H
-from project.utils import wrap_delta, wrap_position
+from project.model.utils import wrap_delta, world_to_screen
 
 class ShipA(BaseShip):
     def __init__(self, x, y, color):
@@ -76,3 +77,16 @@ class ShipA(BaseShip):
                     target.active = False
             else:
                 target.take_damage(1)
+
+    def render(self, screen, cam, zoom):
+        """
+        Отрисовка лазерных лучей, сохранённых в списке active_lasers.
+        Лазер рисуется от текущего положения корабля до точки попадания.
+        Используется функция world_to_screen для преобразования координат.
+        """
+        for (tx, ty, t) in self.active_lasers:
+            # Отрисовываем луч только, если время жизни (t) больше нуля
+            if t > 0:
+                start_pos = world_to_screen(self.x, self.y, cam.x, cam.y, zoom)
+                end_pos = world_to_screen(tx, ty, cam.x, cam.y, zoom)
+                pygame.draw.line(screen, (255, 0, 0), start_pos, end_pos, 2)

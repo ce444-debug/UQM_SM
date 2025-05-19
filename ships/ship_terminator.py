@@ -1,7 +1,6 @@
 import math
 from project.ships.base_ship import BaseShip
-from project.config import FIELD_W, FIELD_H
-from project.utils import wrap_position, wrap_delta
+
 
 class ShipTerminator(BaseShip):
     def __init__(self, x, y, color):
