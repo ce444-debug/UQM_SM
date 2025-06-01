@@ -1,5 +1,5 @@
 import pygame
-from project.model.utils import world_to_screen
+from project.utils import world_to_screen
 
 class Planet:
     def __init__(self, x, y, radius, color):

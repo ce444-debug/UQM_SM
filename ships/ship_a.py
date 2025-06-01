@@ -2,7 +2,7 @@ import math
 import pygame
 from project.ships.base_ship import BaseShip
 from project.config import FIELD_W, FIELD_H
-from project.model.utils import wrap_delta, world_to_screen
+from project.utils import wrap_delta, wrap_position, world_to_screen
 
 class ShipA(BaseShip):
     def __init__(self, x, y, color):

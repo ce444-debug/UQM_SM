@@ -1,4 +1,6 @@
-from project.model.utils import wrap_position
+import math
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_position, wrap_delta
 import pygame
 
 class Projectile:
@@ -18,7 +20,7 @@ class Projectile:
         self.x, self.y = wrap_position(self.x, self.y)
 
     def draw(self, screen, cam, zoom, color=(255, 255, 255)):
-        from project.model.utils import world_to_screen
+        from project.utils import world_to_screen
         sx, sy = world_to_screen(self.x, self.y, cam.x, cam.y, zoom)
         pygame.draw.circle(screen, color, (sx, sy), int(self.radius * zoom))
 

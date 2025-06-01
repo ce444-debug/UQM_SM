@@ -1,5 +1,7 @@
 import math
 from project.ships.base_ship import BaseShip
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_delta, wrap_position
 from project.entities.mine import Mine, Plasmoid
 
 class ShipB(BaseShip):

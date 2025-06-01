@@ -1,5 +1,7 @@
 import math
 import random
+from project.utils import wrap_delta
+from project.config import FIELD_W, FIELD_H
 
 
 class AIController:
