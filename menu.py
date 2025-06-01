@@ -5,18 +5,19 @@ import random
 from project.ships.registry import SHIP_CLASSES
 from project.config import SCREEN_W, SCREEN_H, PANEL_WIDTH, GAME_SCREEN_W
 
-# ---------- Colors & constants ----------
+# Цвета
 WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
-GREEN = (0, 255, 0)
 GRAY = (200, 200, 200)
 BLACK = (0, 0, 0)
 
 SAVES_FILE = "saved_teams.json"
+
 CONTROL_OPTIONS = ["Human Control", "Weak Cyborg", "Good Cyborg", "Awesome Cyborg"]
+
 LEFT_PANEL_COLS = 7
 
-# In-memory cache for last menu state
+# CACHING ADDED: глобальная переменная для кэширования загруженной конфигурации
 _CACHED_CONFIG = None
 
 class SuperMeleeMenu:
@@ -24,70 +25,78 @@ class SuperMeleeMenu:
         self.screen = screen
         self.clock = clock
 
-        # Fonts
         self.font_title = pygame.font.SysFont("Arial", 48)
         self.font_menu = pygame.font.SysFont("Arial", 36)
         self.font_small = pygame.font.SysFont("Arial", 20)
 
-        # FSM state
         self.state = "main_menu"
 
-        # Team data
+        # 14 слотов флота
         self.team_slots = 14
         self.teams = {"Team 1": [None] * self.team_slots,
                       "Team 2": [None] * self.team_slots}
-        self.team_names = {"Team 1": "Team 1", "Team 2": "Team 2"}
-        self.settings = {"Team 1": {"control": "Human Control"},
-                         "Team 2": {"control": "Good Cyborg"}}
+        self.team_names = {"Team 1": "Team 1",
+                           "Team 2": "Team 2"}
 
-        # Menu cursor/selection
-        self.selected_right = 3  # Start on "Battle!"
+        self.settings = {
+            "Team 1": {"control": "Human Control"},
+            "Team 2": {"control": "Good Cyborg"}
+        }
+
+        # Изменено: по умолчанию фокус главного меню на правой панели (selected_right = 0)
+        self.selected_right = 0
+        # Фокус левой панели: -1 означает, что курсор на заголовке (Team Name),
+        # 0..(team_slots-1) – выбранная ячейка флота.
+        self.selected_slot = -1
         self.selected_team = "Team 1"
-        self.selected_slot = -1  # -1 = team header
         self.last_upper_slot = 0
 
-        # Right panel options: (display_text, action, team)
+        # Правые опции: первые три для Team 1, затем Battle, потом Save/Load для Team 2, затем Control для Team 2 и Quit.
         self.right_options = [
-            ("Team 1 Control", "control", "Team 1"),
-            ("Save", "save", "Team 1"),
-            ("Load", "load", "Team 1"),
-            ("Battle!", "battle", None),
-            ("Save", "save", "Team 2"),
-            ("Load", "load", "Team 2"),
-            ("Team 2 Control", "control", "Team 2"),
-            ("Quit", "quit", None)
+            ("Team 1", "control"),
+            ("Team 1", "save"),
+            ("Team 1", "load"),
+            ("Battle", None),
+            ("Team 2", "save"),
+            ("Team 2", "load"),
+            ("Team 2", "control"),
+            ("Quit", "quit")
         ]
 
-        # Aux variables
         self.ship_list = list(SHIP_CLASSES.keys()) + ["?"]
         self.selected_ship_index = 0
-        self.editing_team = False
         self.editing_team_name = ""
+        self.editing_team = False  # Режим редактирования имени включается при клике по заголовку
         self.initial_ships = {"Team 1": None, "Team 2": None}
 
-        # Load cached or saved config
+        self.confirm_team1 = False
+        self.confirm_team2 = False
+
+        # CACHING ADDED: Используем глобальный кэш конфигурации, чтобы минимизировать чтение файла
         global _CACHED_CONFIG
         if _CACHED_CONFIG is not None:
-            self._apply_loaded_config(_CACHED_CONFIG)
+            # Если конфигурация уже загружена ранее – используем её
+            self.last_config = _CACHED_CONFIG
+            self.teams = _CACHED_CONFIG.get("teams", self.teams)
+            self.team_names = _CACHED_CONFIG.get("team_names", self.team_names)
+            self.settings = _CACHED_CONFIG.get("settings", self.settings)
         else:
             try:
                 with open(SAVES_FILE, "r") as f:
                     saves = json.load(f)
                 if saves and "last_config" in saves:
-                    self._apply_loaded_config(saves["last_config"])
-                    _CACHED_CONFIG = saves["last_config"]
-            except Exception:
+                    config = saves["last_config"]
+                    self.teams = config.get("teams", self.teams)
+                    self.team_names = config.get("team_names", self.team_names)
+                    self.settings = config.get("settings", self.settings)
+                    if "mode" not in config:
+                        config["mode"] = f"{self.settings['Team 1']['control']} vs {self.settings['Team 2']['control']}"
+                    self.last_config = config
+                    _CACHED_CONFIG = config  # Сохраняем в кэш
+            except Exception as e:
                 pass
-        self.normalize_teams()
 
-    def _apply_loaded_config(self, cfg):
-        self.teams = cfg.get("teams", self.teams)
-        self.team_names = cfg.get("team_names", self.team_names)
-        self.settings = cfg.get("settings", self.settings)
-        for team in ["Team 1", "Team 2"]:
-            ctrl = self.settings[team]["control"]
-            if ctrl not in CONTROL_OPTIONS:
-                self.settings[team]["control"] = "Good Cyborg" if "cyborg" in ctrl.lower() else "Human Control"
+        self.normalize_teams()
 
     def normalize_teams(self):
         for team in self.teams:
@@ -96,161 +105,315 @@ class SuperMeleeMenu:
             if len(self.teams[team]) > self.team_slots:
                 self.teams[team] = self.teams[team][:self.team_slots]
 
-    def is_ship_available(self, team, ship_name, slot):
-        available_ships = [i for i, ship in enumerate(self.teams[team]) if ship == ship_name]
-        eliminated_ships = [idx for idx, ship in enumerate(self.teams[team]) if ship == "eliminated" and idx in available_ships]
-        if len(available_ships) > len(eliminated_ships):
-            if slot in eliminated_ships:
-                return False
-            return True
-        return False
-
     def get_opposite_slot(self, slot):
         if slot < 0:
             return 0
-        return slot + LEFT_PANEL_COLS if slot < LEFT_PANEL_COLS else slot - LEFT_PANEL_COLS
-
-    def display(self):
-        self.reset()
-        while True:
-            if self.state == "main_menu":
-                self.draw_main_menu()
-                self.handle_main_events()
-            elif self.state == "ship_select":
-                self.draw_ship_select()
-                self.handle_ship_select_events()
-            elif self.state == "battle_select":
-                cfg = self.battle_select_mode()
-                if cfg:
-                    return cfg
-            elif self.state == "exit":
-                return self.generate_config()
-            pygame.display.flip()
-            self.clock.tick(30)
+        if slot < LEFT_PANEL_COLS:
+            return slot + LEFT_PANEL_COLS
+        else:
+            return slot - LEFT_PANEL_COLS
 
     def draw_main_menu(self):
         self.screen.fill(BLACK)
         left_rect = pygame.Rect(0, 0, GAME_SCREEN_W, SCREEN_H)
         pygame.draw.rect(self.screen, (30, 30, 30), left_rect)
-        self.screen.blit(self.font_title.render("Super Melee", True, YELLOW), (20, 10))
-
-        h_half = (SCREEN_H - 100) // 2 - 10
-        panel1 = pygame.Rect(10, 80, GAME_SCREEN_W - 20, h_half)
-        panel2 = pygame.Rect(10, panel1.bottom + 20, GAME_SCREEN_W - 20, h_half)
-        pygame.draw.rect(self.screen, (50, 50, 50), panel1, 2)
-        pygame.draw.rect(self.screen, (50, 50, 50), panel2, 2)
-        self.draw_team_panel("Team 1", panel1)
-        self.draw_team_panel("Team 2", panel2)
-
+        title_surface = self.font_title.render("Super melee", True, YELLOW)
+        self.screen.blit(title_surface, (20, 10))
+        team1_area = pygame.Rect(10, 80, GAME_SCREEN_W - 20, (SCREEN_H - 100) // 2 - 10)
+        team2_area = pygame.Rect(10, team1_area.bottom + 20, GAME_SCREEN_W - 20, (SCREEN_H - 100) // 2 - 10)
+        pygame.draw.rect(self.screen, (50,50,50), team1_area, 2)
+        pygame.draw.rect(self.screen, (50,50,50), team2_area, 2)
+        self.draw_team_panel("Team 1", team1_area)
+        self.draw_team_panel("Team 2", team2_area)
         right_rect = pygame.Rect(GAME_SCREEN_W, 0, PANEL_WIDTH, SCREEN_H)
-        pygame.draw.rect(self.screen, (40, 40, 40), right_rect)
+        pygame.draw.rect(self.screen, (40,40,40), right_rect)
         self.draw_right_panel(right_rect)
 
     def draw_team_panel(self, team, area):
-        name = self.team_names[team]
+        name = self.team_names.get(team, team)
         if self.selected_right == -1 and self.selected_team == team and self.selected_slot == -1 and self.editing_team:
-            surf = self.font_menu.render(self.editing_team_name, True, YELLOW)
+            edit_text = self.font_menu.render(self.editing_team_name, True, YELLOW)
+            self.screen.blit(edit_text, (area.x + 10, area.y + 10))
         else:
-            surf = self.font_menu.render(name, True, WHITE)
-        self.screen.blit(surf, (area.x + 10, area.y + 10))
-        if self.selected_right == -1 and self.selected_team == team and self.selected_slot == -1:
-            pygame.draw.rect(self.screen, YELLOW,
-                             (area.x + 8, area.y + 8, surf.get_width() + 4, surf.get_height() + 4), 1)
-        slot_m = 5
+            name_surface = self.font_menu.render(name, True, WHITE)
+            self.screen.blit(name_surface, (area.x + 10, area.y + 10))
+            if self.selected_right == -1 and self.selected_team == team and self.selected_slot == -1:
+                pygame.draw.rect(self.screen, YELLOW, (area.x + 8, area.y + 8,
+                                                       name_surface.get_width() + 4,
+                                                       name_surface.get_height() + 4), 1)
+        slot_margin = 5
         cols = LEFT_PANEL_COLS
-        slot_w = (area.width - 20 - (cols - 1) * slot_m) // cols
-        slot_h = 40
+        slot_width = (area.width - 20 - (cols - 1) * slot_margin) // cols
+        slot_height = 40
         start_y = area.y + 60
         points = 0
-        for i in range(self.team_slots):
-            row = i // cols
-            col = i % cols
-            r = pygame.Rect(area.x + 10 + col * (slot_w + slot_m),
-                            start_y + row * (slot_h + slot_m), slot_w, slot_h)
-            pygame.draw.rect(self.screen, GRAY, r, 1)
-            txt = self.teams[team][i] if self.teams[team][i] else "---"
-            if self.selected_right == -1 and self.selected_team == team and self.selected_slot == i:
-                pygame.draw.rect(self.screen, YELLOW, r, 2)
-            self.screen.blit(self.font_small.render(txt, True, WHITE), (r.x + 5, r.y + 10))
-            if txt != "---" and txt in SHIP_CLASSES:
+        for idx in range(self.team_slots):
+            row = idx // cols
+            col = idx % cols
+            slot_x = area.x + 10 + col * (slot_width + slot_margin)
+            slot_y = start_y + row * (slot_height + slot_margin)
+            slot_rect = pygame.Rect(slot_x, slot_y, slot_width, slot_height)
+            pygame.draw.rect(self.screen, GRAY, slot_rect, 1)
+            ship_name = self.teams[team][idx] if self.teams[team][idx] is not None else "---"
+            if self.selected_right == -1 and self.selected_team == team and self.selected_slot == idx:
+                pygame.draw.rect(self.screen, YELLOW, slot_rect, 2)
+            slot_text = self.font_small.render(ship_name, True, WHITE)
+            self.screen.blit(slot_text, (slot_rect.x + 5, slot_rect.y + 10))
+            if ship_name != "---" and ship_name in SHIP_CLASSES:
                 try:
-                    dummy = SHIP_CLASSES[txt](0, 0, WHITE)
+                    dummy = SHIP_CLASSES[ship_name](0, 0, WHITE)
                     points += getattr(dummy, "cost", 0)
                 except:
                     pass
-        self.screen.blit(self.font_small.render(f"Points: {points}", True, WHITE),
-                         (area.x + 10, area.bottom - 30))
+        points_text = self.font_small.render(f"Points: {points}", True, WHITE)
+        self.screen.blit(points_text, (area.x + 10, area.bottom - 30))
 
     def draw_right_panel(self, area):
-        pygame.draw.rect(self.screen, (40, 40, 40), area)
-        y = 50
-        margin = 10
-        for idx, (opt_text, action, team) in enumerate(self.right_options):
-            # Set height: 80 for battle, 60 for control, 30 for save/load, 40 for quit
-            if action == "battle":
-                h = 80
+        current_y = 20
+        for idx, (team_option, action) in enumerate(self.right_options):
+            if team_option == "Battle":
+                option_height = 80
             elif action == "control":
-                h = 60
-            elif action == "save" or action == "load":
-                h = 30
-            else:  # quit
-                h = 40
-            font = self.font_menu if action == "control" else self.font_small
-            if action == "control" and team:
-                txt = self.settings[team]["control"]
+                option_height = 60
             else:
-                txt = opt_text
-            # Add extra spacing before Quit
+                option_height = 40
             if action == "quit":
-                y += 20
-            border_color = YELLOW if idx == self.selected_right else GRAY
-            border_width = 2 if idx == self.selected_right else 1
-            r = pygame.Rect(area.x + margin, y, area.width - 2 * margin, h)
-            pygame.draw.rect(self.screen, border_color, r, border_width)
-            surf = font.render(txt, True, WHITE)
-            text_x = r.x + (r.width - surf.get_width()) // 2
-            text_y = r.y + (r.height - surf.get_height()) // 2
-            self.screen.blit(surf, (text_x, text_y))
-            y += h + margin
+                current_y += 20
+            rect = pygame.Rect(area.x + 10, current_y, area.width - 20, option_height)
+            if self.selected_right == idx:
+                pygame.draw.rect(self.screen, YELLOW, rect, 2)
+            else:
+                pygame.draw.rect(self.screen, GRAY, rect, 1)
+            if team_option == "Battle":
+                if self.selected_right == -1:
+                    if self.selected_slot == -1:
+                        battle_text = "Team name"
+                    else:
+                        ship_name = self.teams[self.selected_team][self.selected_slot]
+                        if ship_name and ship_name in SHIP_CLASSES:
+                            dummy = SHIP_CLASSES[ship_name](0, 0, WHITE)
+                            battle_text = (f"{dummy.name} C:{dummy.crew}/{dummy.max_crew} "
+                                           f"E:{dummy.energy}/{dummy.max_energy} ${dummy.cost}")
+                        else:
+                            battle_text = "Empty slot"
+                else:
+                    battle_text = "Battle!"
+            elif action == "control":
+                battle_text = f"{self.settings[team_option]['control']}"
+            elif action == "save":
+                battle_text = "Save"
+            elif action == "load":
+                battle_text = "Load"
+            elif action == "quit":
+                battle_text = "Quit"
+            else:
+                battle_text = ""
+            if team_option == "Battle" or action == "quit":
+                txt_surf = self.font_small.render(battle_text, True, WHITE)
+            elif action == "control":
+                txt_surf = self.font_menu.render(battle_text, True, WHITE)
+            else:
+                txt_surf = self.font_small.render(battle_text, True, WHITE)
+            self.screen.blit(txt_surf, (rect.x + 5, rect.y + (option_height - txt_surf.get_height()) // 2))
+            current_y += option_height + 10
 
     def draw_ship_select(self):
         self.screen.fill((20, 20, 60))
-        self.screen.blit(self.font_title.render("Select Ship", True, YELLOW),
-                         (SCREEN_W // 2 - 100, 20))
-        self.screen.blit(self.font_small.render("Use arrows, Enter to select", True, WHITE),
-                         (50, SCREEN_H - 40))
+        title = self.font_title.render("Select Ship", True, YELLOW)
+        self.screen.blit(title, (SCREEN_W // 2 - title.get_width() // 2, 20))
+        info = self.font_small.render("Use arrows, Enter to select, Esc to cancel", True, WHITE)
+        self.screen.blit(info, (50, SCREEN_H - 40))
         list_x = SCREEN_W // 2 - 100
         list_y = 100
-        for i, name in enumerate(self.ship_list):
-            col = YELLOW if i == self.selected_ship_index else GRAY
-            self.screen.blit(self.font_menu.render(name, True, col), (list_x, list_y + i * 40))
+        for i, ship in enumerate(self.ship_list):
+            color = YELLOW if i == self.selected_ship_index else GRAY
+            ship_text = self.font_menu.render(ship, True, color)
+            self.screen.blit(ship_text, (list_x, list_y + i * 40))
+
+    def draw_team_name_edit(self):
+        pass
+
+    # Изменено: Новый метод draw_battle_select – отрисовка таблиц выбора стартовых кораблей без заголовков и рамок
+    def draw_battle_select(self, sel1, sel2, active_team):
+        self.screen.fill(BLACK)
+        panel1 = pygame.Rect(10, 80, GAME_SCREEN_W - 20, (SCREEN_H - 100) // 2)
+        panel2 = pygame.Rect(10, panel1.bottom + 20, GAME_SCREEN_W - 20, (SCREEN_H - 100) // 2)
+        total_cells = self.team_slots + 2  # 16 ячеек: индексы 0..(team_slots-1) – реальные слоты, team_slots -> "?" и team_slots+1 -> "X"
+        cols = 4
+        cell_margin = 5
+        cell_width = (panel1.width - 20 - (cols - 1) * cell_margin) // cols
+        cell_height = 40
+        # Таблица для Team 1
+        for idx in range(total_cells):
+            r = idx // cols
+            c = idx % cols
+            x = panel1.x + 10 + c * (cell_width + cell_margin)
+            y = panel1.y + 10 + r * (cell_height + cell_margin)
+            cell_rect = pygame.Rect(x, y, cell_width, cell_height)
+            if idx == sel1:
+                pygame.draw.rect(self.screen, YELLOW, cell_rect, 2)
+            else:
+                pygame.draw.rect(self.screen, GRAY, cell_rect, 1)
+            if idx < self.team_slots:
+                text = self.teams["Team 1"][idx] if self.teams["Team 1"][idx] is not None else "---"
+            elif idx == self.team_slots:
+                text = "?"
+            else:
+                text = "X"
+            txt_surf = self.font_small.render(str(text), True, WHITE)
+            self.screen.blit(txt_surf, (cell_rect.x + 5, cell_rect.y + 10))
+        # Таблица для Team 2
+        for idx in range(total_cells):
+            r = idx // cols
+            c = idx % cols
+            x = panel2.x + 10 + c * (cell_width + cell_margin)
+            y = panel2.y + 10 + r * (cell_height + cell_margin)
+            cell_rect = pygame.Rect(x, y, cell_width, cell_height)
+            if idx == sel2:
+                pygame.draw.rect(self.screen, YELLOW, cell_rect, 2)
+            else:
+                pygame.draw.rect(self.screen, GRAY, cell_rect, 1)
+            if idx < self.team_slots:
+                text = self.teams["Team 2"][idx] if self.teams["Team 2"][idx] is not None else "---"
+            elif idx == self.team_slots:
+                text = "?"
+            else:
+                text = "X"
+            txt_surf = self.font_small.render(str(text), True, WHITE)
+            self.screen.blit(txt_surf, (cell_rect.x + 5, cell_rect.y + 10))
+        if active_team == "Team 1":
+            instr = "Team1: Use E(up), D(down), S(left), F(right), A(confirm)"
+        else:
+            instr = "Team2: Use Arrow keys, RCTRL(confirm)"
+        instr_surf = self.font_small.render(instr, True, WHITE)
+        self.screen.blit(instr_surf, (10, SCREEN_H - 30))
+
+    def battle_select_mode(self):
+        # Для каждой команды – выбор индекса от 0 до team_slots+1
+        battle_sel = {"Team 1": 0, "Team 2": 0}
+        active_team = "Team 1"
+        confirmed = {"Team 1": False, "Team 2": False}
+        max_index = self.team_slots + 1  # Дополнительные 2 ячейки
+
+        # Если контроль не Human, выбираем автоматически "?"
+        if self.settings["Team 1"]["control"] != "Human Control":
+            battle_sel["Team 1"] = self.team_slots
+            confirmed["Team 1"] = True
+        if self.settings["Team 2"]["control"] != "Human Control":
+            battle_sel["Team 2"] = self.team_slots
+            confirmed["Team 2"] = True
+
+        while not (confirmed["Team 1"] and confirmed["Team 2"]):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    # Для Team 1 – используем клавиши: E=up, D=down, S=left, F=right, A=confirm
+                    if active_team == "Team 1" and self.settings["Team 1"]["control"] == "Human Control":
+                        if event.key == pygame.K_e:
+                            if battle_sel["Team 1"] - 4 >= 0:
+                                battle_sel["Team 1"] -= 4
+                        elif event.key == pygame.K_d:
+                            if battle_sel["Team 1"] + 4 <= max_index:
+                                battle_sel["Team 1"] += 4
+                        elif event.key == pygame.K_s:
+                            if battle_sel["Team 1"] > 0:
+                                battle_sel["Team 1"] -= 1
+                        elif event.key == pygame.K_f:
+                            if battle_sel["Team 1"] < max_index:
+                                battle_sel["Team 1"] += 1
+                        elif event.key == pygame.K_a:
+                            confirmed["Team 1"] = True
+                    # Для Team 2 – используем стрелки и RCTRL
+                    elif active_team == "Team 2" and self.settings["Team 2"]["control"] == "Human Control":
+                        if event.key == pygame.K_LEFT:
+                            if battle_sel["Team 2"] > 0:
+                                battle_sel["Team 2"] -= 1
+                        elif event.key == pygame.K_RIGHT:
+                            if battle_sel["Team 2"] < max_index:
+                                battle_sel["Team 2"] += 1
+                        elif event.key == pygame.K_UP:
+                            if battle_sel["Team 2"] - 4 >= 0:
+                                battle_sel["Team 2"] -= 4
+                        elif event.key == pygame.K_DOWN:
+                            if battle_sel["Team 2"] + 4 <= max_index:
+                                battle_sel["Team 2"] += 4
+                        elif event.key == pygame.K_RCTRL:
+                            confirmed["Team 2"] = True
+                    if event.key == pygame.K_TAB:
+                        active_team = "Team 2" if active_team == "Team 1" else "Team 1"
+            self.draw_battle_select(battle_sel["Team 1"], battle_sel["Team 2"], active_team)
+            pygame.display.flip()
+            self.clock.tick(30)
+
+        sel1 = battle_sel["Team 1"]
+        sel2 = battle_sel["Team 2"]
+        # Если выбран слот "X" (индекс team_slots+1) для любой команды,
+        # сбрасываем меню и немедленно возвращаем конфигурацию главного меню
+        if sel1 == self.team_slots + 1 or sel2 == self.team_slots + 1:
+            self.reset()  # Сброс состояния меню
+            return self.generate_config()  # Немедленная генерация конфигурации главного меню
+        ship1 = self.teams["Team 1"][sel1] if (sel1 >= 0 and sel1 < self.team_slots) else ("?" if sel1 == self.team_slots else None)
+        ship2 = self.teams["Team 2"][sel2] if (sel2 >= 0 and sel2 < self.team_slots) else ("?" if sel2 == self.team_slots else None)
+        self.initial_ships["Team 1"] = ship1
+        self.initial_ships["Team 2"] = ship2
+        self.state = "exit"
+        config = {
+            "mode": f"{self.settings['Team 1']['control']} vs {self.settings['Team 2']['control']}",
+            "teams": self.teams,
+            "team_names": self.team_names,
+            "settings": self.settings,
+            "initial_ships": self.initial_ships
+        }
+        return config
+
+    # Новый метод reset() – сброс состояния меню
+    def reset(self):
+        self.state = "main_menu"
+        self.selected_right = 0
+        self.selected_slot = -1
+        self.selected_team = "Team 1"
+
+    # Новый метод generate_config() – немедленная генерация конфигурации меню
+    def generate_config(self):
+        return {
+            "mode": f"{self.settings['Team 1']['control']} vs {self.settings['Team 2']['control']}",
+            "teams": self.teams,
+            "team_names": self.team_names,
+            "settings": self.settings,
+            "initial_ships": self.initial_ships
+        }
 
     def handle_main_events(self):
-        for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                self.save_last_config()
-                pygame.quit()
-                sys.exit()
-            elif ev.type == pygame.KEYDOWN:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            elif event.type == pygame.KEYDOWN:
                 if self.editing_team:
-                    if ev.key == pygame.K_RETURN:
+                    if event.key == pygame.K_RETURN:
                         self.team_names[self.selected_team] = self.editing_team_name
                         self.editing_team = False
-                    elif ev.key == pygame.K_BACKSPACE:
+                    elif event.key == pygame.K_BACKSPACE:
                         self.editing_team_name = self.editing_team_name[:-1]
+                    elif event.key == pygame.K_ESCAPE:
+                        self.editing_team = False
+                        self.editing_team_name = ""
                     else:
-                        self.editing_team_name += ev.unicode
+                        self.editing_team_name += event.unicode
                     return
                 if self.selected_right == -1:
-                    if ev.key == pygame.K_UP:
+                    if event.key == pygame.K_UP:
                         if self.selected_slot == -1:
                             if self.selected_team == "Team 2":
                                 self.selected_team = "Team 1"
                                 self.selected_slot = self.get_opposite_slot(self.last_upper_slot)
                         else:
                             new_slot = self.selected_slot - LEFT_PANEL_COLS
-                            self.selected_slot = -1 if new_slot < -1 else new_slot
-                    elif ev.key == pygame.K_DOWN:
+                            if new_slot < -1:
+                                self.selected_slot = -1
+                            else:
+                                self.selected_slot = new_slot
+                    elif event.key == pygame.K_DOWN:
                         if self.selected_slot == -1:
                             self.selected_slot = 0
                         else:
@@ -260,12 +423,20 @@ class SuperMeleeMenu:
                                     self.last_upper_slot = self.selected_slot
                                     self.selected_team = "Team 2"
                                     self.selected_slot = -1
+                                else:
+                                    pass
                             else:
                                 self.selected_slot = new_slot
-                    elif ev.key == pygame.K_LEFT:
-                        if self.selected_slot > -1 and self.selected_slot % LEFT_PANEL_COLS > 0:
-                            self.selected_slot -= 1
-                    elif ev.key == pygame.K_RIGHT:
+                    elif event.key == pygame.K_LEFT:
+                        if self.selected_slot == -1:
+                            pass
+                        else:
+                            col = self.selected_slot % LEFT_PANEL_COLS
+                            if col > 0:
+                                self.selected_slot -= 1
+                            else:
+                                self.selected_slot = -1
+                    elif event.key == pygame.K_RIGHT:
                         if self.selected_slot == -1:
                             self.selected_slot = 0
                         else:
@@ -274,307 +445,97 @@ class SuperMeleeMenu:
                                 self.selected_slot += 1
                             else:
                                 self.selected_right = 3
-                    elif ev.key == pygame.K_RETURN:
+                    elif event.key == pygame.K_RETURN:
                         if self.selected_slot == -1:
                             self.editing_team = True
                             self.editing_team_name = self.team_names[self.selected_team]
                         else:
                             self.state = "ship_select"
                             self.selected_ship_index = 0
-                    elif ev.key == pygame.K_TAB:
+                    elif event.key == pygame.K_TAB:
                         self.selected_team = "Team 2" if self.selected_team == "Team 1" else "Team 1"
-                else:
-                    if ev.key == pygame.K_LEFT:
-                        current_right = self.selected_right
-                        self.selected_right = -1
                         self.selected_slot = -1
-                        self.selected_team = "Team 1" if current_right <= 3 else "Team 2"
-                    elif ev.key == pygame.K_UP:
-                        self.selected_right = max(0, self.selected_right - 1)
-                    elif ev.key == pygame.K_DOWN:
-                        self.selected_right = min(len(self.right_options) - 1, self.selected_right + 1)
-                    elif ev.key == pygame.K_RETURN:
+                else:
+                    if event.key == pygame.K_LEFT:
+                        self.selected_right = -1
+                    elif event.key == pygame.K_UP:
+                        self.selected_right = max(self.selected_right - 1, 0)
+                    elif event.key == pygame.K_DOWN:
+                        self.selected_right = min(self.selected_right + 1, len(self.right_options) - 1)
+                    elif event.key == pygame.K_RETURN:
                         self.activate_right_option()
-                    elif ev.key == pygame.K_TAB:
+                    elif event.key == pygame.K_TAB:
                         self.selected_team = "Team 2" if self.selected_team == "Team 1" else "Team 1"
+                    elif event.key == pygame.K_ESCAPE:
+                        pygame.quit(); sys.exit()
 
     def activate_right_option(self):
-        opt_text, action, team = self.right_options[self.selected_right]
-        if action == "battle":
+        option = self.right_options[self.selected_right]
+        team_option, action = option
+        if team_option == "Battle":
             self.state = "battle_select"
         elif action == "quit":
-            self.state = "exit"
-        elif action == "control" and team:
-            cur = self.settings[team]["control"]
-            idx = CONTROL_OPTIONS.index(cur)
-            self.settings[team]["control"] = CONTROL_OPTIONS[(idx + 1) % len(CONTROL_OPTIONS)]
-        elif action == "save" and team:
-            self.universal_save(team)
-        elif action == "load" and team:
-            self.universal_load(team)
+            self.save_last_config()
+            pygame.quit()
+            sys.exit()
+        else:
+            if action == "control":
+                current = self.settings[team_option]["control"]
+                if current not in CONTROL_OPTIONS:
+                    if current.lower() == "cyborg":
+                        current = "Good Cyborg"
+                    else:
+                        current = CONTROL_OPTIONS[0]
+                idx = CONTROL_OPTIONS.index(current)
+                new_idx = (idx + 1) % len(CONTROL_OPTIONS)
+                self.settings[team_option]["control"] = CONTROL_OPTIONS[new_idx]
+            elif action == "save":
+                self.universal_save(team_option)
+            elif action == "load":
+                self.universal_load(team_option)
 
-    def handle_ship_select_events(self):
-        for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                self.save_last_config()
-                pygame.quit()
-                sys.exit()
-            elif ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_UP:
-                    self.selected_ship_index = max(0, self.selected_ship_index - 1)
-                elif ev.key == pygame.K_DOWN:
-                    self.selected_ship_index = min(len(self.ship_list) - 1, self.selected_ship_index + 1)
-                elif ev.key == pygame.K_RETURN:
-                    chosen = self.ship_list[self.selected_ship_index]
-                    if chosen == "?":
-                        chosen = random.choice(list(SHIP_CLASSES.keys()))
-                    self.teams[self.selected_team][self.selected_slot] = chosen
-                    self.state = "main_menu"
-
-    def draw_battle_select(self, sel1, sel2, conf1=None, conf2=None):
-        self.screen.fill(BLACK)
-        panel_h = (SCREEN_H - 100) // 2
-        panel1 = pygame.Rect(10, 80, GAME_SCREEN_W - 20, panel_h)
-        panel2 = pygame.Rect(10, panel1.bottom + 20, GAME_SCREEN_W - 20, panel_h)
-        total = self.team_slots + 2
-        cols = 4
-        m = 5
-        cell_w = (panel1.width - 20 - (cols - 1) * m) // cols
-        cell_h = 40
-
-        def draw_grid(team, panel, sel, confirmed_idx):
-            for idx in range(total):
-                r, c = divmod(idx, cols)
-                x = panel.x + 10 + c * (cell_w + m)
-                y = panel.y + 10 + r * (cell_h + m)
-                rect = pygame.Rect(x, y, cell_w, cell_h)
-                if isinstance(confirmed_idx, int) and idx == confirmed_idx:
-                    border_color = GREEN
-                    border_width = 3
-                elif idx == sel:
-                    border_color = YELLOW
-                    border_width = 2
-                else:
-                    border_color = GRAY
-                    border_width = 1
-                pygame.draw.rect(self.screen, border_color, rect, border_width)
-                if idx < self.team_slots:
-                    txt = self.teams[team][idx] if self.teams[team][idx] else "---"
-                elif idx == self.team_slots:
-                    txt = "?"
-                else:
-                    txt = "X"
-                self.screen.blit(self.font_small.render(str(txt), True, WHITE),
-                                 (rect.x + 5, rect.y + 10))
-
-        draw_grid("Team 1", panel1, sel1, conf1)
-        draw_grid("Team 2", panel2, sel2, conf2)
-
-        instr = "Team1: E/D/S/F + A to confirm; Team2: Arrows + RCTRL to confirm"
-        self.screen.blit(self.font_small.render(instr, True, WHITE), (10, SCREEN_H - 30))
-
-    def battle_select_mode(self):
-        max_index = self.team_slots + 1
-        battle_sel = {"Team 1": 0, "Team 2": 0}
-        confirm_idx = {"Team 1": None, "Team 2": None}
-
-        if self.settings["Team 1"]["control"] != "Human Control":
-            battle_sel["Team 1"] = self.team_slots
-            confirm_idx["Team 1"] = self.team_slots
-        if self.settings["Team 2"]["control"] != "Human Control":
-            battle_sel["Team 2"] = self.team_slots
-            confirm_idx["Team 2"] = self.team_slots
-
-        clock = pygame.time.Clock()
-        while confirm_idx["Team 1"] is None or confirm_idx["Team 2"] is None:
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self.save_last_config()
-                    pygame.quit()
-                    sys.exit()
-                if ev.type == pygame.KEYDOWN:
-                    if self.settings["Team 1"]["control"] == "Human Control":
-                        if ev.key == pygame.K_e and battle_sel["Team 1"] - 4 >= 0:
-                            battle_sel["Team 1"] -= 4
-                        elif ev.key == pygame.K_d and battle_sel["Team 1"] + 4 <= max_index:
-                            battle_sel["Team 1"] += 4
-                        elif ev.key == pygame.K_s and battle_sel["Team 1"] > 0:
-                            battle_sel["Team 1"] -= 1
-                        elif ev.key == pygame.K_f and battle_sel["Team 1"] < max_index:
-                            battle_sel["Team 1"] += 1
-                        elif ev.key == pygame.K_a:
-                            if not (battle_sel["Team 1"] < self.team_slots and
-                                    self.teams["Team 1"][battle_sel["Team 1"]] is None):
-                                confirm_idx["Team 1"] = battle_sel["Team 1"]
-                                print(f"Team 1 confirmed: {self.teams['Team 1'][battle_sel['Team 1']] if battle_sel['Team 1'] < self.team_slots else ('?' if battle_sel['Team 1'] == self.team_slots else 'X')}")
-                    if self.settings["Team 2"]["control"] == "Human Control":
-                        if ev.key == pygame.K_LEFT and battle_sel["Team 2"] > 0:
-                            battle_sel["Team 2"] -= 1
-                        elif ev.key == pygame.K_RIGHT and battle_sel["Team 2"] < max_index:
-                            battle_sel["Team 2"] += 1
-                        elif ev.key == pygame.K_UP and battle_sel["Team 2"] - 4 >= 0:
-                            battle_sel["Team 2"] -= 4
-                        elif ev.key == pygame.K_DOWN and battle_sel["Team 2"] + 4 <= max_index:
-                            battle_sel["Team 2"] += 4
-                        elif ev.key == pygame.K_RCTRL:
-                            if not (battle_sel["Team 2"] < self.team_slots and
-                                    self.teams["Team 2"][battle_sel["Team 2"]] is None):
-                                confirm_idx["Team 2"] = battle_sel["Team 2"]
-                                print(f"Team 2 confirmed: {self.teams['Team 2'][battle_sel['Team 2']] if battle_sel['Team 2'] < self.team_slots else ('?' if battle_sel['Team 2'] == self.team_slots else 'X')}")
-
-            self.draw_battle_select(battle_sel["Team 1"],
-                                    battle_sel["Team 2"],
-                                    confirm_idx["Team 1"],
-                                    confirm_idx["Team 2"])
-            pygame.display.flip()
-            clock.tick(30)
-
-        sel1 = confirm_idx["Team 1"]
-        sel2 = confirm_idx["Team 2"]
-
-        if sel1 == self.team_slots + 1 or sel2 == self.team_slots + 1:
-            self.reset()
-            return self.generate_config()
-
-        ship1 = (self.teams["Team 1"][sel1] if sel1 < self.team_slots else "?")
-        ship2 = (self.teams["Team 2"][sel2] if sel2 < self.team_slots else "?")
-        cfg = {
+    def save_last_config(self):
+        config = {
             "mode": f"{self.settings['Team 1']['control']} vs {self.settings['Team 2']['control']}",
             "teams": self.teams,
             "team_names": self.team_names,
-            "settings": self.settings,
-            "initial_ships": {"Team 1": ship1, "Team 2": ship2}
+            "settings": self.settings
         }
-        self.save_last_config()
-        return cfg
-
-    def reset(self):
-        self.state = "main_menu"
-        self.selected_right = 3  # Reset to "Battle!"
-        self.selected_slot = -1
-        self.selected_team = "Team 1"
-
-    def generate_config(self):
-        for team in ["Team 1", "Team 2"]:
-            ctrl = self.settings[team]["control"]
-            diff = "Easy" if ctrl == "Weak Cyborg" else "Medium" if ctrl == "Good Cyborg" else "Hard" if ctrl == "Awesome Cyborg" else "N/A"
-            self.settings[team]["cyborg_difficulty"] = diff
-        return {"mode": f"{self.settings['Team 1']['control']} vs {self.settings['Team 2']['control']}",
-                "teams": self.teams, "team_names": self.team_names,
-                "settings": self.settings, "initial_ships": self.initial_ships}
-
-    def choose_save_option(self):
-        options = ["New Save"]
+        global _CACHED_CONFIG  # CACHING ADDED: обновляем кэш
         try:
             with open(SAVES_FILE, "r") as f:
                 saves = json.load(f)
-            options += list(saves.get("profiles", {}).keys())
-        except Exception:
-            pass
-        idx = 0
-        choosing = True
-        while choosing:
-            self.screen.fill(BLACK)
-            self.screen.blit(self.font_title.render("Save Profile", True, YELLOW), (50, 20))
-            for i, opt in enumerate(options):
-                col = YELLOW if i == idx else GRAY
-                self.screen.blit(self.font_menu.render(opt, True, col), (100, 100 + i * 50))
-            pygame.display.flip()
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self.save_last_config()
-                    pygame.quit()
-                    sys.exit()
-                elif ev.type == pygame.KEYDOWN:
-                    if ev.key == pygame.K_UP:
-                        idx = max(0, idx - 1)
-                    elif ev.key == pygame.K_DOWN:
-                        idx = min(len(options) - 1, idx + 1)
-                    elif ev.key == pygame.K_RETURN:
-                        choosing = False
-            self.clock.tick(30)
-        return options[idx]
-
-    def choose_profile(self):
+        except Exception as e:
+            saves = {}
+        saves["last_config"] = config
+        _CACHED_CONFIG = config  # Обновляем кэш
         try:
-            with open(SAVES_FILE, "r") as f:
-                saves = json.load(f)
-            profiles = list(saves.get("profiles", {}).keys())
-        except Exception:
-            profiles = []
-        if not profiles:
-            return None
-        idx = 0
-        choosing = True
-        while choosing:
-            self.screen.fill(BLACK)
-            self.screen.blit(self.font_title.render("Load Profile", True, YELLOW), (50, 20))
-            for i, opt in enumerate(profiles):
-                col = YELLOW if i == idx else GRAY
-                self.screen.blit(self.font_menu.render(opt, True, col), (100, 100 + i * 50))
-            pygame.display.flip()
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self.save_last_config()
-                    pygame.quit()
-                    sys.exit()
-                elif ev.type == pygame.KEYDOWN:
-                    if ev.key == pygame.K_UP:
-                        idx = max(0, idx - 1)
-                    elif ev.key == pygame.K_DOWN:
-                        idx = min(len(profiles) - 1, idx + 1)
-                    elif ev.key == pygame.K_RETURN:
-                        choosing = False
-            self.clock.tick(30)
-        return profiles[idx]
+            with open(SAVES_FILE, "w") as f:
+                json.dump(saves, f)
+            print("Last configuration saved.")
+        except Exception as e:
+            print("Error saving last configuration:", e)
 
-    def prompt_for_save_name(self, prompt_msg):
-        name = ""
-        entering = True
-        while entering:
-            self.screen.fill(BLACK)
-            self.screen.blit(self.font_menu.render(prompt_msg + name, True, WHITE), (50, SCREEN_H // 2))
-            pygame.display.flip()
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self.save_last_config()
-                    pygame.quit()
-                    sys.exit()
-                elif ev.type == pygame.KEYDOWN:
-                    if ev.key == pygame.K_RETURN:
-                        entering = False
-                    elif ev.key == pygame.K_BACKSPACE:
-                        name = name[:-1]
-                    else:
-                        name += ev.unicode
-            self.clock.tick(30)
-        return name.strip()
+    def handle_ship_select_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    self.selected_ship_index = max(self.selected_ship_index - 1, 0)
+                elif event.key == pygame.K_DOWN:
+                    self.selected_ship_index = min(self.selected_ship_index + 1, len(self.ship_list) - 1)
+                elif event.key == pygame.K_RETURN:
+                    chosen_ship = self.ship_list[self.selected_ship_index]
+                    if chosen_ship == "?":
+                        chosen_ship = random.choice(list(SHIP_CLASSES.keys()))
+                    self.teams[self.selected_team][self.selected_slot] = chosen_ship
+                    self.state = "main_menu"
+                elif event.key == pygame.K_ESCAPE:
+                    self.state = "main_menu"
 
-    def prompt_confirm_overwrite(self, name):
-        asking = True
-        idx = 0
-        options = ["Yes", "No"]
-        while asking:
-            self.screen.fill(BLACK)
-            self.screen.blit(self.font_menu.render(f"Overwrite '{name}'?", True, WHITE), (50, 100))
-            for i, opt in enumerate(options):
-                col = YELLOW if i == idx else GRAY
-                self.screen.blit(self.font_menu.render(opt, True, col), (100, 200 + i * 60))
-            pygame.display.flip()
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self.save_last_config()
-                    pygame.quit()
-                    sys.exit()
-                elif ev.type == pygame.KEYDOWN:
-                    if ev.key == pygame.K_UP:
-                        idx = max(0, idx - 1)
-                    elif ev.key == pygame.K_DOWN:
-                        idx = min(1, idx + 1)
-                    elif ev.key == pygame.K_RETURN:
-                        asking = False
-            self.clock.tick(30)
-        return idx == 0
+    def handle_team_name_edit_events(self):
+        pass
 
     def universal_save(self, team):
         option = self.choose_save_option()
@@ -588,134 +549,311 @@ class SuperMeleeMenu:
             name = option
             if not self.prompt_confirm_overwrite(name):
                 return
-        cfg = {"fleet": self.teams[team], "team_name": self.team_names[team]}
+        config = {
+            "fleet": self.teams[team],
+            "team_name": self.team_names[team]
+        }
         try:
             with open(SAVES_FILE, "r") as f:
                 saves = json.load(f)
-        except Exception:
+        except Exception as e:
+            print("Read error:", e)
             saves = {}
         profiles = saves.get("profiles", {})
-        profiles[name] = cfg
+        profiles[name] = config
         saves["profiles"] = profiles
         try:
             with open(SAVES_FILE, "w") as f:
-                json.dump(saves, f, indent=2)
+                json.dump(saves, f)
+            print(f"Profile '{name}' saved.")
         except Exception as e:
-            print(f"Failed to save profile: {e}")
+            print("Write error:", e)
 
     def universal_load(self, team):
-        profile = self.choose_profile()
-        if not profile:
+        profile_name = self.choose_profile()
+        if not profile_name:
             return
         try:
             with open(SAVES_FILE, "r") as f:
                 saves = json.load(f)
-            conf = saves.get("profiles", {}).get(profile)
-            if conf:
-                self.teams[team] = conf.get("fleet", self.teams[team])
-                self.team_names[team] = conf.get("team_name", self.team_names[team])
+            profiles = saves.get("profiles", {})
+            if profile_name in profiles:
+                config = profiles[profile_name]
+                self.teams[team] = config.get("fleet", self.teams[team])
+                self.team_names[team] = config.get("team_name", self.team_names[team])
                 self.normalize_teams()
-        except Exception:
-            pass
+                print(f"Profile '{profile_name}' loaded into {team}.")
+        except Exception as e:
+            print(e)
 
-    def save_last_config(self):
-        cfg = self.generate_config()
-        global _CACHED_CONFIG
-        _CACHED_CONFIG = cfg
+    def prompt_for_save_name(self, prompt_msg):
+        save_name = ""
+        waiting = True
+        while waiting:
+            self.screen.fill(BLACK)
+            text = self.font_menu.render(prompt_msg + save_name, True, WHITE)
+            self.screen.blit(text, (50, SCREEN_H // 2))
+            pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_RETURN:
+                        waiting = False
+                    elif event.key == pygame.K_BACKSPACE:
+                        save_name = save_name[:-1]
+                    elif event.key == pygame.K_ESCAPE:
+                        waiting = False
+                        save_name = ""
+                    else:
+                        save_name += event.unicode
+            self.clock.tick(30)
+        return save_name
+
+    def prompt_confirm_overwrite(self, profile_name):
+        waiting = True
+        confirm = False
+        while waiting:
+            self.screen.fill(BLACK)
+            prompt = self.font_menu.render(f"Profile '{profile_name}' exists. Overwrite? (Y/N)", True, WHITE)
+            self.screen.blit(prompt, (50, SCREEN_H // 2))
+            pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_y:
+                        confirm = True
+                        waiting = False
+                    elif event.key == pygame.K_n:
+                        confirm = False
+                        waiting = False
+            self.clock.tick(30)
+        return confirm
+
+    def prompt_confirm_delete(self, profile_name):
+        waiting = True
+        confirm = False
+        while waiting:
+            self.screen.fill(BLACK)
+            prompt = self.font_menu.render(f"Delete profile '{profile_name}'? (Y/N)", True, WHITE)
+            self.screen.blit(prompt, (50, SCREEN_H // 2))
+            pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_y:
+                        confirm = True
+                        waiting = False
+                    elif event.key == pygame.K_n:
+                        confirm = False
+                        waiting = False
+            self.clock.tick(30)
+        return confirm
+
+    def delete_profile(self, profile_name):
         try:
             with open(SAVES_FILE, "r") as f:
                 saves = json.load(f)
-        except Exception:
-            saves = {}
-        saves["last_config"] = cfg
-        try:
-            with open(SAVES_FILE, "w") as f:
-                json.dump(saves, f, indent=2)
-            return True
+            profiles = saves.get("profiles", {})
+            if profile_name in profiles:
+                del profiles[profile_name]
+                saves["profiles"] = profiles
+                with open(SAVES_FILE, "w") as f:
+                    json.dump(saves, f)
+                print(f"Profile '{profile_name}' deleted.")
         except Exception as e:
-            print(f"Failed to save last config: {e}")
-            return False
+            print("Error deleting profile:", e)
+
+    def choose_save_option(self):
+        try:
+            with open(SAVES_FILE, "r") as f:
+                saves = json.load(f)
+            profiles = saves.get("profiles", {})
+            keys = list(profiles.keys())
+            keys.sort()
+            keys.append("New Save")
+        except Exception as e:
+            keys = ["New Save"]
+        selected_index = 0
+        waiting = True
+        while waiting:
+            self.screen.fill(BLACK)
+            title = self.font_title.render("Select Save Profile", True, YELLOW)
+            self.screen.blit(title, (50, 50))
+            for i, key in enumerate(keys):
+                color = YELLOW if i == selected_index else WHITE
+                text = self.font_small.render(key, True, color)
+                self.screen.blit(text, (50, 150 + i * 40))
+            pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_UP:
+                        selected_index = max(selected_index - 1, 0)
+                    elif event.key == pygame.K_DOWN:
+                        selected_index = min(selected_index + 1, len(keys) - 1)
+                    elif event.key == pygame.K_RETURN:
+                        waiting = False
+                        return keys[selected_index]
+                    elif event.key == pygame.K_ESCAPE:
+                        waiting = False
+                        return None
+            self.clock.tick(30)
+
+    def choose_profile(self):
+        try:
+            with open(SAVES_FILE, "r") as f:
+                saves = json.load(f)
+            profiles = saves.get("profiles", {})
+            keys = list(profiles.keys())
+            if not keys:
+                return None
+            keys.sort()
+        except Exception as e:
+            print(e)
+            return None
+        selected_index = 0
+        waiting = True
+        while waiting:
+            self.screen.fill(BLACK)
+            title = self.font_title.render("Select Profile", True, YELLOW)
+            self.screen.blit(title, (50, 50))
+            for i, key in enumerate(keys):
+                color = YELLOW if i == selected_index else WHITE
+                text = self.font_small.render(key, True, color)
+                self.screen.blit(text, (50, 150 + i * 40))
+            pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_UP:
+                        selected_index = max(selected_index - 1, 0)
+                    elif event.key == pygame.K_DOWN:
+                        selected_index = min(selected_index + 1, len(keys) - 1)
+                    elif event.key == pygame.K_DELETE:
+                        profile_to_delete = keys[selected_index]
+                        if self.prompt_confirm_delete(profile_to_delete):
+                            self.delete_profile(profile_to_delete)
+                            try:
+                                with open(SAVES_FILE, "r") as f:
+                                    saves = json.load(f)
+                                profiles = saves.get("profiles", {})
+                                keys = list(profiles.keys())
+                                keys.sort()
+                                if not keys:
+                                    waiting = False
+                                    return None
+                                selected_index = 0
+                            except Exception as e:
+                                print(e)
+                                waiting = False
+                                return None
+                    elif event.key == pygame.K_RETURN:
+                        waiting = False
+                        return keys[selected_index]
+                    elif event.key == pygame.K_ESCAPE:
+                        waiting = False
+                        return None
+            self.clock.tick(30)
+
+    def display_loop(self):
+        while True:
+            if self.state == "main_menu":
+                self.handle_main_events()
+                self.draw_main_menu()
+            elif self.state == "ship_select":
+                self.handle_ship_select_events()
+                self.draw_ship_select()
+            elif self.state == "team_name_edit":
+                pass
+            elif self.state == "battle_select":
+                config = self.battle_select_mode()
+                return config
+            elif self.state == "exit":
+                config = {
+                    "mode": f"{self.settings['Team 1']['control']} vs {self.settings['Team 2']['control']}",
+                    "teams": self.teams,
+                    "team_names": self.team_names,
+                    "settings": self.settings
+                }
+                self.save_last_config()
+                return config
+            pygame.display.flip()
+            self.clock.tick(30)
+
+    def display(self):
+        return self.display_loop()
+
 
 class PauseMenu:
     def __init__(self, screen, clock):
         self.screen = screen
         self.clock = clock
-        self.font_title = pygame.font.SysFont("Arial", 48)
-        self.font_menu = pygame.font.SysFont("Arial", 36)
-        self.font_small = pygame.font.SysFont("Arial", 24)
+        self.font_title = pygame.font.SysFont("Arial",48)
+        self.font_menu = pygame.font.SysFont("Arial",36)
+        self.font_small = pygame.font.SysFont("Arial",24)
         self.options = ["Resume", "Main Menu", "Quit"]
         self.selected = 0
-        self.done = False
-        self.next_state = None
-        self.super_menu = None
-
-    def set_super_menu(self, super_menu):
-        self.super_menu = super_menu
-
-    def reset(self):
-        self.selected = 0
-        self.done = False
-        self.next_state = None
-
-    def handle_event(self, event):
-        if event.type == pygame.QUIT:
-            if self.super_menu is not None:
-                self.super_menu.save_last_config()
-            self.done = True
-            self.next_state = "QUIT"
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                self.done = True
-                self.next_state = "RESUME"
-            elif event.key == pygame.K_UP:
-                self.selected = (self.selected - 1) % len(self.options)
-            elif event.key == pygame.K_DOWN:
-                self.selected = (self.selected + 1) % len(self.options)
-            elif event.key == pygame.K_RETURN:
-                self.done = True
-                if self.selected == 0:
-                    self.next_state = "RESUME"
-                elif self.selected == 1:
-                    self.next_state = "MENU"
-                elif self.selected == 2:
-                    if self.super_menu is not None:
-                        self.super_menu.save_last_config()
-                    self.next_state = "QUIT"
-
-    def draw(self):
-        self.screen.fill(BLACK)
-        title_surf = self.font_title.render("Paused", True, YELLOW)
-        self.screen.blit(title_surf, (SCREEN_W // 2 - title_surf.get_width() // 2, 100))
-
-        for i, option in enumerate(self.options):
-            color = YELLOW if i == self.selected else WHITE
-            border_color = YELLOW if i == self.selected else GRAY
-            border_width = 2 if i == self.selected else 1
-
-            text_surf = self.font_menu.render(option, True, color)
-            x = SCREEN_W // 2 - text_surf.get_width() // 2
-            y = SCREEN_H // 2 + i * 60
-            rect = pygame.Rect(x - 10, y - 10, text_surf.get_width() + 20, text_surf.get_height() + 20)
-            pygame.draw.rect(self.screen, border_color, rect, border_width)
-            self.screen.blit(text_surf, (x, y))
-
-        instr = "Use UP/DOWN to select, ENTER to confirm"
-        self.screen.blit(self.font_small.render(instr, True, WHITE), (10, SCREEN_H - 30))
-
-    def update(self, dt):
-        pass
 
     def display(self):
-        self.reset()
-        while not self.done:
-            for event in pygame.event.get():
-                self.handle_event(event)
-            self.draw()
+        while True:
+            self.screen.fill((20,20,20))
+            left_rect = pygame.Rect(0, 0, GAME_SCREEN_W, SCREEN_H)
+            pygame.draw.rect(self.screen, (30,30,30), left_rect)
+            title_surface = self.font_title.render("Pause", True, YELLOW)
+            self.screen.blit(title_surface, (20,20))
+            right_rect = pygame.Rect(GAME_SCREEN_W, 0, PANEL_WIDTH, SCREEN_H)
+            pygame.draw.rect(self.screen, (40,40,40), right_rect)
+            option_height = 50
+            spacing = 10
+            start_y = 100
+            for idx, option in enumerate(self.options):
+                rect = pygame.Rect(right_rect.x+10, start_y+idx*(option_height+spacing), right_rect.width-20, option_height)
+                if idx == self.selected:
+                    pygame.draw.rect(self.screen, YELLOW, rect, 2)
+                else:
+                    pygame.draw.rect(self.screen, GRAY, rect, 1)
+                text_surface = self.font_menu.render(option, True, WHITE)
+                self.screen.blit(text_surface, (rect.x+5, rect.y+10))
             pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit(); sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_UP:
+                        self.selected = max(self.selected-1,0)
+                    elif event.key == pygame.K_DOWN:
+                        self.selected = min(self.selected+1, len(self.options)-1)
+                    elif event.key == pygame.K_RETURN:
+                        return self.options[self.selected]
+                    elif event.key == pygame.K_ESCAPE:
+                        return "Resume"
             self.clock.tick(30)
-        return self.next_state
+
 
 def fast_load_menu(screen, clock):
+    """
+    Быстрый переход в главное меню после завершения битвы:
+    создаёт новый экземпляр SuperMeleeMenu, сбрасывает его состояние и немедленно генерирует конфигурацию главного меню.
+    При этом кэширование конфигурации применяется для минимизации операций с файлами.
+    """
     menu = SuperMeleeMenu(screen, clock)
-    menu.reset()
-    return menu.generate_config()
+    menu.reset()  # Сброс состояния меню в "main_menu"
+    config = menu.generate_config()  # Немедленная генерация конфигурации главного меню
+    menu.save_last_config()
+    return config
+
+
+if __name__ == "__main__":
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+    clock = pygame.time.Clock()
+    # Для обычного тестирования:
+    menu = SuperMeleeMenu(screen, clock)
+    config = menu.display()  # Стандартное интерактивное меню
+    # Или можно использовать fast_load_menu(screen, clock) для быстрого перехода в главное меню
+    print("Config loaded:", config)

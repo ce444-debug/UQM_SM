@@ -1,6 +1,7 @@
 import math
 from project.config import FIELD_W, FIELD_H
-from project.model.utils import wrap_position, wrap_delta
+from project.utils import wrap_position, wrap_delta
+import pygame
 from project.entities.projectile import Projectile
 
 class Missile(Projectile):

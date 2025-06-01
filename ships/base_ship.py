@@ -1,7 +1,7 @@
 import math
 import pygame  # Добавлено для отрисовки
-from project.model.utils import wrap_position
-
+from project.config import FIELD_W, FIELD_H
+from project.utils import wrap_position, wrap_delta
 
 class BaseShip:
     next_id = 1  # Статическая переменная для уникального идентификатора
@@ -112,7 +112,7 @@ class BaseShip:
 
     # Новый метод: отрисовка корабля с носом.
     def draw(self, screen, cam, zoom):
-        from project.model.utils import world_to_screen
+        from project.utils import world_to_screen
         # Получаем экранные координаты
         sx, sy = world_to_screen(self.x, self.y, cam.x, cam.y, zoom)
         # Вычисляем радиус с учётом зума
